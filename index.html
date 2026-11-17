@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Find your seat · Mars &amp; Bianca</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Fraunces:opsz,wght@9..144,500;9..144,700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ivory:#F9F4EA;--paper:#FFFDF8;--ink:#2B1D1F;--muted:#76676A;--line:#E3D8C5;
+  --cherry:#A8323A;--sky:#8DC3DE;--butter:#F3CF6E;--garden:#5E7F45;
+  --cherry-t:#F2D5D4;--sky-t:#DCEBF3;--butter-t:#FBEFC9;--garden-t:#DCE5D0;
+  --display:'Fraunces',Georgia,'Times New Roman',serif;
+  --body:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--ivory);color:var(--ink);font:15px/1.5 var(--body);-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--cherry);outline-offset:2px}
+
+header{padding:16px 20px 12px;background:var(--ivory)}
+.brand h1{font:700 22px/1.1 var(--display);margin:0;color:var(--cherry)}
+.brand span{color:var(--muted);font-size:12.5px}
+.scallop{height:10px;background:radial-gradient(circle at 10px 0,var(--cherry) 0 9.5px,transparent 10px) 0 0/20px 10px repeat-x}
+
+main{max-width:640px;margin:0 auto;padding:0 16px 48px}
+
+#search-area{padding-top:clamp(20px,6vh,56px)}
+#search-area label{display:block;font:700 28px/1.15 var(--display);color:var(--cherry);margin-bottom:6px}
+#search-area p.sub{margin:0 0 12px;color:var(--muted);font-size:14px}
+#gq{width:100%;border:2px solid var(--ink);border-radius:12px;padding:13px 16px;font-size:18px;background:var(--paper);-webkit-appearance:none;appearance:none}
+#gq:focus{outline:none;border-color:var(--cherry);box-shadow:0 0 0 3px var(--cherry-t)}
+
+#gres{margin-top:14px;min-height:44px}
+#gres[aria-live]{transition:opacity .15s}
+.gchips{display:flex;flex-wrap:wrap;gap:8px}
+.gchip{border:1.5px solid var(--ink);background:var(--paper);border-radius:99px;padding:9px 18px;font-weight:500;font-size:15px}
+.gchip:hover,.gchip:active{background:var(--cherry-t)}
+.soft{background:var(--butter-t);border:1px solid var(--butter);border-radius:12px;padding:14px 18px;font-size:14px;line-height:1.6}
+.soft.ok{background:var(--cherry-t);border-color:var(--cherry-t)}
+.note{font-size:13px;color:var(--muted);margin:0}
+
+.spinner-wrap{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.spinner{display:inline-block;width:18px;height:18px;border:2.5px solid var(--line);border-top-color:var(--cherry);border-radius:50%;animation:spin .65s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+#map-area{margin-top:24px}
+#table-announce{font:700 22px/1.2 var(--display);color:var(--cherry);margin:0 0 12px;text-align:center}
+#table-announce strong{color:var(--cherry)}
+.canvas-wrap{background:var(--paper);border-radius:14px;overflow:hidden;box-shadow:0 2px 16px rgba(43,29,31,.1)}
+#room{width:100%;height:auto;display:block;touch-action:auto;max-width:100%}
+
+/* SVG */
+.tbl.focus .tbody{stroke:var(--cherry);stroke-width:4;fill:var(--cherry-t)}
+.tbl.dim{opacity:.38}
+.tbody{fill:var(--paper);stroke:var(--ink);stroke-width:1.5}
+.chair{fill:var(--paper);stroke:#B9AE9B;stroke-width:1.2}
+.chair.occ{fill:var(--butter-t);stroke:var(--ink);stroke-width:1.5}
+.chair.hi{fill:var(--cherry);stroke:var(--ink);stroke-width:2.2;animation:blink .9s ease-in-out infinite alternate}
+.chair.host{fill:var(--ink);stroke:var(--ink)}
+@keyframes blink{from{fill:var(--cherry)}to{fill:var(--butter)}}
+.pulse{fill:none;stroke:var(--cherry);stroke-width:2.5;transform-box:fill-box;transform-origin:center;animation:ping 1.5s ease-out infinite;pointer-events:none}
+@keyframes ping{0%{transform:scale(1);opacity:.95}100%{transform:scale(3.4);opacity:0}}
+@media(prefers-reduced-motion:reduce){
+  .chair.hi{animation:none}
+  .pulse{animation:none;opacity:.7;transform:scale(1.9)}
+}
+.tlabel{font:700 11.5px var(--body);fill:var(--ink);text-anchor:middle;pointer-events:none}
+.ini{font:700 6.5px var(--body);fill:var(--ink);text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.fx rect{stroke-width:1.5}
+.fx.dance rect{fill:var(--butter-t);stroke:var(--butter)}
+.fx.stage rect{fill:var(--sky-t);stroke:var(--sky)}
+.fx.buffet rect{fill:var(--garden-t);stroke:var(--garden)}
+.fx.backdrop rect{fill:var(--cherry-t);stroke:var(--cherry)}
+.fx.cake rect{fill:var(--cherry-t);stroke:var(--cherry)}
+.fx.custom rect{fill:var(--paper);stroke:var(--muted);stroke-dasharray:6 4}
+.fx.entrance rect{fill:var(--ink);stroke:var(--ink)}
+.flabel{font:700 11px var(--body);fill:var(--ink);text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.fx.entrance .flabel{fill:var(--ivory)}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--ivory);padding:9px 16px;border-radius:99px;font-weight:500;opacity:0;pointer-events:none;transition:opacity .2s;z-index:80;max-width:90vw;text-align:center}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Mars &amp; Bianca</h1>
+    <span>Reception seating &middot; Oct 15, 2027</span>
+  </div>
+</header>
+<div class="scallop" aria-hidden="true"></div>
+<main>
+  <div id="search-area">
+    <label for="gq">Type your name</label>
+    <p class="sub">We'll show you where you're sitting.</p>
+    <input id="gq" type="search" placeholder="e.g. Maria Cruz"
+           autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false">
+    <div id="gres" role="status" aria-live="polite" aria-atomic="true"></div>
+  </div>
+  <div id="map-area" hidden>
+    <p id="table-announce"></p>
+    <div class="canvas-wrap">
+      <svg id="room" xmlns="http://www.w3.org/2000/svg"
+           role="img" aria-label="Reception floorplan"></svg>
+    </div>
+  </div>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+(function(){
+'use strict';
+
+/* ---- Worker address ---- */
+var WORKER_URL = 'https://seating-proxy.marsnbianca.workers.dev';
+
+/* ---- SVG scale ---- */
+var S = 30; // svg units per metre
+
+/* ---- Geometry (identical to admin/prototype) ---- */
+var CURVE_SW = 100 * Math.PI / 180, CURVE_W = 0.9;
+function curveTop(n){ return Math.max(1, Math.min(n - 1, Math.round(n * 2 / 3))); }
+function curveGeo(t){
+  var per = curveTop(t.chairs), L = per * 0.62 + 0.3,
+      Rc  = Math.max(1.3, L / CURVE_SW), sag = Rc * (1 - Math.cos(CURVE_SW / 2));
+  return {Rc:Rc, sag:sag, c:Rc - sag / 2, w:2 * (Rc + CURVE_W / 2) * Math.sin(CURVE_SW / 2), h:sag + CURVE_W};
+}
+function curvePt(g, R, phi){ return [R * Math.sin(phi), g.c - R * Math.cos(phi)]; }
+function curveSeat(t, i){
+  var g = curveGeo(t), top = curveTop(t.chairs), bot = t.chairs - top,
+      outer = i < top, k, cnt;
+  if(outer){ k = i; cnt = top; } else { k = bot - 1 - (i - top); cnt = Math.max(bot, 1); }
+  var phi = -CURVE_SW / 2 + CURVE_SW * (k + 0.5) / cnt,
+      R   = g.Rc + (outer ? 1 : -1) * (CURVE_W / 2 + 0.3),
+      pt  = curvePt(g, R, phi),
+      ang = Math.atan2(pt[1] - g.c, pt[0]) * 180 / Math.PI;
+  return {pos: pt, rot: outer ? ang - 90 : ang + 90};
+}
+function dims(t){
+  var n = t.chairs;
+  if(t.shape === 'round'){ var r = 0.5 + 0.04 * n; return {w:2*r, h:2*r, r:r}; }
+  if(t.shape === 'curve'){ var cg = curveGeo(t); return {w:cg.w, h:cg.h, sag:cg.sag, c:cg.c, Rc:cg.Rc}; }
+  var per = t.shape === 'head' ? n : Math.ceil(n / 2);
+  return {w: per * 0.62 + 0.3, h: t.shape === 'banquet' ? 0.95 : 0.9};
+}
+function chairPos(t, i){
+  var n = t.chairs, d = dims(t);
+  if(t.shape === 'round'){ var a = -Math.PI / 2 + 2 * Math.PI * i / n, R = d.r + 0.3; return [R * Math.cos(a), R * Math.sin(a)]; }
+  if(t.shape === 'curve') return curveSeat(t, i).pos;
+  if(t.shape === 'head'){ var sp = (d.w - 0.3) / n; return [(-(n - 1) / 2 + i) * sp, d.h / 2 + 0.3]; }
+  var top = Math.ceil(n / 2), bot = n - top;
+  if(i < top){ var s1 = (d.w - 0.3) / top; return [(-(top - 1) / 2 + i) * s1, -d.h / 2 - 0.3]; }
+  var j = i - top, k = bot - 1 - j, s2 = (d.w - 0.3) / Math.max(bot, 1);
+  return [(-(bot - 1) / 2 + k) * s2, d.h / 2 + 0.3];
+}
+function chairAngle(t, i){
+  if(t.shape === 'round') return -180 + 360 * i / t.chairs;
+  if(t.shape === 'head') return 0;
+  if(t.shape === 'curve') return curveSeat(t, i).rot;
+  return i < Math.ceil(t.chairs / 2) ? 180 : 0;
+}
+function num(x){ return Math.round(x * 100) / 100; }
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+var PETAL = 'M-5 -6.5 L5 -6.5 C9.5 -3.5 8 5.5 0 6.5 C-8 5.5 -9.5 -3.5 -5 -6.5Z';
+
+function nameInitials(name){
+  var w = String(name).replace(/[&]/g, ' ').split(/\s+/)
+    .filter(function(x){ return x && !/^(the|family|fam|and|mr|mrs|ms|dr)\.?$/i.test(x); });
+  if(!w.length) return '?';
+  return (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase();
+}
+
+/* ---- SVG rendering for guest page ----
+   t.seats is an array of seat codes:
+     0 = free, 1 = taken by someone else, 2 = THIS guest (pulse+initials), 3 = sweetheart
+*/
+function tableSVG(t, guestName, hasGuest){
+  var d = dims(t), seats = t.seats || [], g = '';
+  var focusT = seats.indexOf(2) > -1;
+  var cls = 'tbl' + (focusT ? ' focus' : '') + (hasGuest && !focusT ? ' dim' : '');
+  g += '<g class="' + cls + '" transform="translate(' + num(t.x * S) + ' ' + num(t.y * S) + ') rotate(' + t.rot + ')">';
+  if(t.shape === 'round'){
+    g += '<circle class="tbody" r="' + num(d.r * S) + '"/>';
+  } else if(t.shape === 'curve'){
+    var cg = curveGeo(t), Ro = cg.Rc + CURVE_W / 2, Ri = cg.Rc - CURVE_W / 2, ph = CURVE_SW / 2;
+    var a1 = curvePt(cg, Ro, -ph), a2 = curvePt(cg, Ro, ph), b2 = curvePt(cg, Ri, ph), b1 = curvePt(cg, Ri, -ph);
+    g += '<path class="tbody" d="M' + num(a1[0]*S) + ' ' + num(a1[1]*S)
+      + ' A' + num(Ro*S) + ' ' + num(Ro*S) + ' 0 0 1 ' + num(a2[0]*S) + ' ' + num(a2[1]*S)
+      + ' L' + num(b2[0]*S) + ' ' + num(b2[1]*S)
+      + ' A' + num(Ri*S) + ' ' + num(Ri*S) + ' 0 0 0 ' + num(b1[0]*S) + ' ' + num(b1[1]*S) + ' Z"/>';
+  } else {
+    g += '<rect class="tbody" x="' + num(-d.w/2*S) + '" y="' + num(-d.h/2*S) + '" width="' + num(d.w*S) + '" height="' + num(d.h*S) + '" rx="5"/>';
+  }
+
+  var pulses = '', guestIdx = 0;
+  seats.forEach(function(code, i){
+    var cp = chairPos(t, i), cx = num(cp[0] * S), cy = num(cp[1] * S), c = 'chair', ini = '';
+    if(code === 3){ c += ' host'; }
+    else if(code === 1){ c += ' occ'; }
+    else if(code === 2){
+      c += ' hi';
+      ini = guestIdx === 0 ? nameInitials(guestName) : '+' + guestIdx;
+      guestIdx++;
+      pulses += '<circle class="pulse" cx="' + cx + '" cy="' + cy + '" r="' + num(0.22 * S) + '"/>';
+    }
+    g += '<path class="' + c + '" d="' + PETAL + '" transform="translate(' + cx + ' ' + cy + ') rotate(' + num(chairAngle(t, i)) + ')"/>';
+    if(ini) g += '<text class="ini" x="' + cx + '" y="' + cy + '" transform="rotate(' + (-t.rot) + ' ' + cx + ' ' + cy + ')">' + esc(ini) + '</text>';
+  });
+  g += pulses;
+
+  var tooNarrow = t.shape !== 'round' && t.shape !== 'curve' && (d.w * S - 8) < String(t.label).length * 6.4;
+  var ly = t.shape === 'head' ? -(d.h / 2 * S) - 6
+    : tooNarrow ? -(d.h / 2 + 0.55) * S - 7
+    : t.shape === 'curve' ? (-d.sag / 2 * S + 6)
+    : t.shape !== 'round' ? 4 : -1;
+  var fs = (t.shape === 'head' || tooNarrow) ? 11.5
+    : Math.max(8, Math.min(11.5, (d.w * S - 10) / (Math.max(String(t.label).length, 1) * 0.6)));
+  g += '<g transform="rotate(' + (-t.rot) + ')"><text class="tlabel" style="font-size:' + num(fs) + 'px" y="' + ly + '">' + esc(t.label) + '</text></g>';
+  g += '</g>';
+  return g;
+}
+
+function fixSVG(f){
+  return '<g class="fx ' + f.kind + '" transform="translate(' + num(f.x * S) + ' ' + num(f.y * S) + ') rotate(' + f.rot + ')">'
+    + '<rect x="' + num(-f.w / 2 * S) + '" y="' + num(-f.h / 2 * S) + '" width="' + num(f.w * S) + '" height="' + num(f.h * S) + '" rx="6"/>'
+    + '<g transform="rotate(' + (-f.rot) + ')"><text class="flabel">' + esc(f.label) + '</text></g>'
+    + '</g>';
+}
+
+function renderFloor(layout, guestName){
+  var svg = document.getElementById('room');
+  var W = layout.area.w, H = layout.area.h;
+  svg.setAttribute('viewBox', '0 0 ' + W * S + ' ' + H * S);
+  svg.style.aspectRatio = W + ' / ' + H;
+  var hasGuest = layout.tables.some(function(t){ return (t.seats || []).indexOf(2) > -1; });
+  var h = '<defs>'
+    + '<pattern id="gingham" width="24" height="24" patternUnits="userSpaceOnUse">'
+    + '<rect width="24" height="24" fill="#FFFDF8"/>'
+    + '<rect width="12" height="24" fill="#F2D5D4" opacity=".4"/>'
+    + '<rect width="24" height="12" fill="#F2D5D4" opacity=".4"/>'
+    + '</pattern></defs>'
+    + '<rect x="0" y="0" width="' + W * S + '" height="' + H * S + '" rx="8" fill="url(#gingham)" stroke="#2B1D1F" stroke-width="2"/>';
+  layout.fixtures.forEach(function(f){ h += fixSVG(f); });
+  layout.tables.forEach(function(t){ h += tableSVG(t, guestName, hasGuest); });
+  svg.innerHTML = h;
+}
+
+/* ---- DOM refs ---- */
+var gqEl       = document.getElementById('gq');
+var gresEl     = document.getElementById('gres');
+var mapEl      = document.getElementById('map-area');
+var announceEl = document.getElementById('table-announce');
+var toastEl    = document.getElementById('toast');
+var debounceTimer = null, toastTimer = null;
+
+function showResult(html){ gresEl.innerHTML = html; }
+
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ toastEl.classList.remove('on'); }, 3600);
+}
+
+/* ---- API calls ---- */
+function doSearch(q){
+  var trimmed = q.trim();
+  if(trimmed.length < 2){ showResult(''); return; }
+  showResult('<div class="spinner-wrap"><span class="spinner"></span> Searching…</div>');
+  fetch(WORKER_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'search', q: trimmed})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if(!data.ok || !data.matches || !data.matches.length){
+      showResult('<div class="soft">We can\'t find that name. Try your first or last name, or ask us!</div>');
+      return;
+    }
+    if(data.matches.length === 1){
+      doSeat(data.matches[0].id, data.matches[0].name);
+      return;
+    }
+    var h = '<div class="gchips">'
+      + data.matches.map(function(m){
+          return '<button class="gchip" data-id="' + esc(m.id) + '">' + esc(m.name) + '</button>';
+        }).join('')
+      + '</div>';
+    showResult(h);
+  })
+  .catch(function(){
+    showResult('<div class="soft">Something went wrong. Try again or ask one of our helpers!</div>');
+  });
+}
+
+function doSeat(id, hint){
+  showResult('<div class="spinner-wrap"><span class="spinner"></span> Finding your seat…</div>');
+  mapEl.hidden = true;
+  fetch(WORKER_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'seat', id: id})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if(!data.ok){
+      showResult('<div class="soft">Something went wrong. Ask Mars, Bianca or one of our helpers!</div>');
+      return;
+    }
+    var displayName = data.name || hint || '';
+    if(displayName) gqEl.value = displayName;
+
+    if(!data.seated){
+      showResult('<div class="soft">'
+        + (displayName ? '<strong>' + esc(displayName) + '</strong> — ' : '')
+        + 'We\'re still finishing the seating chart, check back soon!</div>');
+      return;
+    }
+
+    showResult('');
+    var myTables = data.tables || [];
+    if(myTables.length){
+      announceEl.innerHTML = 'You are at <strong>' + esc(myTables.join(' &amp; ')) + '</strong>';
+    } else {
+      announceEl.textContent = 'Your seat is highlighted on the map below';
+    }
+    mapEl.hidden = false;
+    renderFloor(data.layout, displayName);
+  })
+  .catch(function(){
+    showResult('<div class="soft">Something went wrong. Try again or ask one of our helpers!</div>');
+  });
+}
+
+/* ---- Events ---- */
+gqEl.addEventListener('input', function(){
+  mapEl.hidden = true;
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(function(){ doSearch(gqEl.value); }, 300);
+});
+
+gresEl.addEventListener('click', function(e){
+  var b = e.target.closest('[data-id]');
+  if(!b) return;
+  gqEl.value = b.textContent;
+  showResult('');
+  doSeat(b.dataset.id, b.textContent);
+});
+
+/* ---- ?id= direct-link support ---- */
+(function(){
+  try{
+    var id = new URL(location.href).searchParams.get('id');
+    if(id) doSeat(id, '');
+  } catch(e){}
+})();
+
+})();
+</script>
+</body>
+</html>
