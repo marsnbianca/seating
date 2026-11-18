@@ -930,20 +930,7 @@ function renderInspector(){
   h+='<section><h3>Add a fixture</h3><div class="pal3">'
     +Object.keys(FIX).map(function(k){ return '<button class="btn" data-act="add-fix" data-kind="'+k+'"><span>'+FIX[k].label+'</span></button>'; }).join('')
     +'</div></section>';
-  if(sel&&sel.k==='t'&&tbl(sel.id)){
-    var t=tbl(sel.id), seats=state.seats[t.id]||[], used=seats.filter(function(v){return!!v;}).length, byP={};
-    seats.forEach(function(v){ var p=parse(v); if(p) byP[p.pid]=(byP[p.pid]||0)+1; });
-    h+='<section><h3>Selected table</h3><div class="card">'
-      +field('Name','<input type="text" id="f-label" data-field="label" value="'+esc(t.label)+'" aria-label="Table name">')
-      +field('Shape','<select data-field="shape" aria-label="Table shape">'+shapeOptions(t)+'</select>')
-      +field('Chairs'+(growStep(t)>1?'\u00a0(\u00b1'+growStep(t)+')':''),'<span class="step"><button data-act="chair-" aria-label="Remove chairs"'+(problems.bad[t.id]?' disabled':'')+'>&minus;</button><output>'+seats.length+'</output><button data-act="chair+" aria-label="Add chairs"'+(problems.bad[t.id]?' disabled':'')+'>+</button></span>')
-      +field('Rotation','<span class="step"><button data-act="rot-" aria-label="Rotate left">&minus;</button><output>'+t.rot+'&deg;</output><button data-act="rot+" aria-label="Rotate right">+</button></span>')
-      +'<p class="note">'+used+' of '+seats.length+' chairs taken</p>'
-      +(Object.keys(byP).length?'<ul class="seatedlist">'+Object.keys(byP).map(function(pid){
-          return '<li><i class="dot" style="'+dotStyle(P[pid].rel)+'"></i><span class="nm">'+esc(P[pid].name)+'</span><span class="pc">'+byP[pid]+'</span><button data-act="unseat" data-pid="'+pid+'">Unseat</button></li>';
-        }).join('')+'</ul>':'<p class="empty">No one seated here yet.</p>')
-      +'<div class="actions"><button class="btn danger" data-act="del">Delete table</button></div></div></section>';
-  } else if(sel&&sel.k==='f'&&fix(sel.id)){
+  if(sel&&sel.k==='f'&&fix(sel.id)){
     var f=fix(sel.id);
     h+='<section><h3>Selected fixture</h3><div class="card">'
       +field('Name','<input type="text" id="f-label" data-field="flabel" value="'+esc(f.label)+'" aria-label="Fixture name">')
@@ -951,6 +938,8 @@ function renderInspector(){
       +field('Depth (m)','<input type="number" min="0.5" max="40" step="0.5" data-field="fh" value="'+f.h+'" aria-label="Depth in metres">')
       +field('Rotation','<span class="step"><button data-act="rot-" aria-label="Rotate left">&minus;</button><output>'+f.rot+'&deg;</output><button data-act="rot+" aria-label="Rotate right">+</button></span>')
       +'<div class="actions"><button class="btn danger" data-act="del">Delete</button></div></div></section>';
+  } else if(sel&&sel.k==='t'){
+    /* table selected — handled in left panel */
   } else {
     h+='<section><h3>Selected</h3><p class="empty">Click a table or fixture on the map to edit it. Drag to move.</p></section>';
   }
