@@ -55,9 +55,11 @@ header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var
 
 /* main */
 main{display:grid;grid-template-columns:290px minmax(0,1fr) 300px;min-height:0}
-aside{overflow:auto;background:var(--paper);min-height:0}
-#parties{border-right:1px solid var(--line)}
-#inspector{border-left:1px solid var(--line);padding:14px 16px 24px}
+aside{background:var(--paper);min-height:0}
+#parties{border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+#inspector{border-left:1px solid var(--line);padding:14px 16px 24px;overflow:auto}
+.pguests{flex:1;overflow:auto;min-height:0}
+.ptable{border-top:2px solid var(--line);overflow-y:auto;padding:12px 16px 18px;background:var(--paper);max-height:48%}
 .stage{display:flex;flex-direction:column;min-width:0;min-height:0}
 .canvas-wrap{flex:1;min-height:0;padding:14px;display:flex;align-items:center;justify-content:center}
 #room{width:100%;height:100%;display:block;touch-action:none;max-width:100%}
@@ -65,7 +67,7 @@ aside{overflow:auto;background:var(--paper);min-height:0}
 
 /* parties panel */
 .phead{position:sticky;top:0;background:var(--paper);padding:12px 14px 8px;border-bottom:1px solid var(--line);z-index:2;display:flex;flex-direction:column;gap:8px}
-.phead h2,#inspector h3{margin:0;font:700 13px/1 var(--body);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.phead h2,#inspector h3,.ptable h3{margin:0;font:700 13px/1 var(--body);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .phead input[type=search]{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--ivory)}
 .chips{display:flex;gap:5px;flex-wrap:nowrap}
 .chip{border:1px solid var(--line);background:transparent;border-radius:99px;padding:3px 8px;font-size:12px;white-space:nowrap}
@@ -91,7 +93,7 @@ aside{overflow:auto;background:var(--paper);min-height:0}
 /* inspector */
 #inspector section{margin-top:16px}
 #inspector section:first-child{margin-top:0}
-#inspector h3{margin-bottom:8px}
+#inspector h3,.ptable h3{margin-bottom:8px}
 .pal{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .pal3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}
 .pal .btn,.pal3 .btn{display:flex;align-items:center;gap:7px;text-align:left;padding:7px 9px;font-size:12px}
@@ -767,10 +769,30 @@ function renderParties(){
     if(!rows.length) h+='<p class="note" style="padding:14px">Nobody here'+(q?' matches that search':' right now')+'.</p>';
     h+=grouped(rows);
   }
-  var keep=partiesEl.scrollTop, hadFocus=document.activeElement&&document.activeElement.id==='pq';
-  partiesEl.innerHTML=h;
-  partiesEl.scrollTop=keep;
+  var pg0=document.getElementById('pguests'), keep=pg0?pg0.scrollTop:0, hadFocus=document.activeElement&&document.activeElement.id==='pq';
+  partiesEl.innerHTML='<div id="pguests" class="pguests">'+h+'</div><div id="ptable" class="ptable" style="display:none"></div>';
+  var pg=document.getElementById('pguests'); if(pg) pg.scrollTop=keep;
   if(hadFocus){ var el=$('pq'); if(el){el.focus(); el.setSelectionRange(el.value.length,el.value.length);} }
+  renderSelTable();
+}
+
+function renderSelTable(){
+  var el=document.getElementById('ptable'); if(!el) return;
+  if(sel && sel.k==='t' && tbl(sel.id)){
+    var t=tbl(sel.id), seats=state.seats[t.id]||[], used=seats.filter(function(v){return !!v;}).length, byP={};
+    seats.forEach(function(v){ var p=parse(v); if(p) byP[p.pid]=(byP[p.pid]||0)+1; });
+    var h='<h3>Selected table</h3><div class="card">'
+      +field('Name','<input type="text" id="f-label" data-field="label" value="'+esc(t.label)+'" aria-label="Table name">')
+      +field('Shape','<select data-field="shape" aria-label="Table shape">'+shapeOptions(t)+'</select>')
+      +field('Chairs'+(growStep(t)>1?' (\u00b1'+growStep(t)+')':''),'<span class="step"><button data-act="chair-" aria-label="Remove chairs"'+(problems.bad[t.id]?' disabled':'')+'>&minus;</button><output>'+seats.length+'</output><button data-act="chair+" aria-label="Add chairs"'+(problems.bad[t.id]?' disabled':'')+'>+</button></span>')
+      +field('Rotation','<span class="step"><button data-act="rot-" aria-label="Rotate left">&minus;</button><output>'+t.rot+'&deg;</output><button data-act="rot+" aria-label="Rotate right">+</button></span>')
+      +'<p class="note">'+used+' of '+seats.length+' chairs taken</p>'
+      +(Object.keys(byP).length?'<ul class="seatedlist">'+Object.keys(byP).map(function(pid){return '<li><i class="dot" style="'+dotStyle(P[pid].rel)+'"></i><span class="nm">'+esc(P[pid].name)+'</span><span class="pc">'+byP[pid]+'</span><button data-act="unseat" data-pid="'+pid+'">Unseat</button></li>';}).join('')+'</ul>':'<p class="empty">No one seated here yet.</p>')
+      +'<div class="actions"><button class="btn danger" data-act="del">Delete table</button></div></div>';
+    el.innerHTML=h; el.style.display='';
+  } else {
+    el.style.display='none'; el.innerHTML='';
+  }
 }
 
 /* ---- Canvas ---- */
@@ -1087,7 +1109,33 @@ function attachListeners(){
     var pid=b.dataset.pid, a=b.dataset.pact;
     if(a==='unseat-all'){ mutate(function(s){unseat(s,pid);}); toast(P[pid].name+' unseated.'); }
   });
-  partiesEl.addEventListener('input',function(e){ if(e.target.id==='pq'){ query=e.target.value; renderParties(); } });
+  /* Selected-table panel event handlers */
+  function ptableContains(target){ var el=document.getElementById('ptable'); return el && el.contains(target); }
+  partiesEl.addEventListener('click',function(e){
+    if(!ptableContains(e.target)) return;
+    var b=e.target.closest('[data-act]'); if(!b) return;
+    var act=b.dataset.act;
+    if(act==='chair+'||act==='chair-'){ var tid0=sel.id; mutate(function(s){return growTable(s,tbl(tid0,s),act==='chair+'?1:-1);}); }
+    else if(act==='rot+'||act==='rot-'){ mutate(function(s){var o=tbl(sel.id,s); o.rot=((o.rot+(act==='rot+'?15:-15))%360+360)%360;}); }
+    else if(act==='unseat'){ mutate(function(s){unseat(s,b.dataset.pid);}); }
+    else if(act==='del'){ mutate(function(s){s.tables=s.tables.filter(function(t){return t.id!==sel.id;});delete s.seats[sel.id];sel=null;}); }
+  });
+  partiesEl.addEventListener('focusin',function(e){
+    if(!ptableContains(e.target)) return;
+    if(e.target.dataset&&e.target.dataset.field==='label') editPre=JSON.stringify(state);
+  });
+  partiesEl.addEventListener('input',function(e){
+    if(e.target.id==='pq'){ query=e.target.value; renderParties(); return; }
+    if(!ptableContains(e.target)) return;
+    var f=e.target.dataset&&e.target.dataset.field; if(!f||!sel) return;
+    if(f==='label'){ var t=tbl(sel.id); t.label=e.target.value; scheduleSave(); renderCanvas(); }
+  });
+  partiesEl.addEventListener('change',function(e){
+    if(!ptableContains(e.target)) return;
+    var f=e.target.dataset&&e.target.dataset.field; if(!f||!sel) return;
+    if(f==='label'){ if(editPre!==null&&editPre!==JSON.stringify(state)){past.push(editPre);future=[];renderAll();} editPre=null; return; }
+    if(f==='shape'){ mutate(function(s){tbl(sel.id,s).shape=e.target.value;}); }
+  });
 
   /* SVG tooltips */
   svg.addEventListener('pointerover',function(e){
@@ -1124,24 +1172,25 @@ function attachListeners(){
       var gtid=ab.dataset.tid, gdir=ab.dataset.act==='seat+'?1:-1;
       sel={k:'t',id:gtid};
       mutate(function(s){return growTable(s,tbl(gtid,s),gdir);});
+      renderCanvas(); renderInspector(); renderSelTable();
       return;
     }
     var ch=e.target.closest('.chair[data-pid]');
     if(ch){ startPartyDrag(e,ch.dataset.pid,ch.closest('.tbl').dataset.tid); return; }
     var g=e.target.closest('[data-tid],[data-fid]');
-    if(!g){ if(sel){sel=null;renderCanvas();renderInspector();} return; }
+    if(!g){ if(sel){sel=null;renderCanvas();renderInspector();renderSelTable();} return; }
     var k=g.dataset.tid?'t':'f', id=g.dataset.tid||g.dataset.fid, o=k==='t'?tbl(id):fix(id);
     var p0=svgPt(e);
     od={k:k,id:id,p0:p0,ox:o.x,oy:o.y,moved:false,pre:JSON.stringify(state),sx:e.clientX,sy:e.clientY};
     var changed=!(sel&&sel.k===k&&sel.id===id);
     sel={k:k,id:id};
-    if(changed){renderCanvas();renderInspector();}
+    if(changed){renderCanvas();renderInspector();renderSelTable();}
     window.addEventListener('pointermove',onObjMove); window.addEventListener('pointerup',onObjEnd); window.addEventListener('pointercancel',onObjEnd);
   });
   svg.addEventListener('dblclick',function(e){
     if(e.target.closest('.addseat')) return;
     var g=e.target.closest('.tbl'); if(!g) return;
-    sel={k:'t',id:g.dataset.tid}; renderCanvas(); renderInspector();
+    sel={k:'t',id:g.dataset.tid}; renderCanvas(); renderInspector(); renderSelTable();
     var inp=$('f-label'); if(inp){inp.focus();inp.select();}
   });
 
@@ -1209,7 +1258,7 @@ function attachListeners(){
     var tag=(e.target.tagName||'').toLowerCase(), typing=tag==='input'||tag==='textarea'||tag==='select';
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'&&!typing){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); return; }
     if(typing||!sel) return;
-    if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); var b=inspEl.querySelector('[data-act="del"]'); if(b) b.click(); return; }
+    if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); var ptdel=document.getElementById('ptable'); var b=(ptdel&&ptdel.querySelector('[data-act="del"]'))||inspEl.querySelector('[data-act="del"]'); if(b) b.click(); return; }
     var st=state.snap?0.5:0.1,dx=0,dy=0;
     if(e.key==='ArrowLeft')dx=-st; else if(e.key==='ArrowRight')dx=st; else if(e.key==='ArrowUp')dy=-st; else if(e.key==='ArrowDown')dy=st; else return;
     e.preventDefault();
