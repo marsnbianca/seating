@@ -194,6 +194,20 @@ aside{background:var(--paper);min-height:0}
   #parties{order:2;border-right:0;border-top:1px solid var(--line);max-height:420px}
   #inspector{order:3;border-left:0;border-top:1px solid var(--line)}
 }
+/* RSVP change badges */
+.rsvp-chg-badge{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--alert);color:#fff;font-size:10px;font-weight:800;line-height:1;flex:none;cursor:default;margin-left:4px;vertical-align:middle;border:0;padding:0}
+.changes-btn{background:var(--alert-t);border:1px solid var(--alert);border-radius:99px;padding:2px 10px;font-size:12px;font-weight:600;color:#8F1620;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.changes-btn:hover{background:#f9c0c3}
+.chg-panel-wrap{position:fixed;inset:0;z-index:55;display:none}
+.chg-panel-wrap.open{display:block}
+.chg-backdrop{position:absolute;inset:0}
+.chg-panel{position:absolute;background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 32px rgba(43,29,31,.18);max-width:420px;width:calc(100vw - 32px);max-height:65vh;overflow-y:auto;top:56px;left:16px}
+.chg-head{padding:14px 18px 10px;border-bottom:1px solid var(--line);font:700 14px/1 var(--body);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--paper);z-index:1}
+.chg-item{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px}
+.chg-item:last-child{border-bottom:0}
+.chg-msg{flex:1;font-size:13px;line-height:1.4}
+.chg-name{font-weight:600;display:block;margin-bottom:2px}
+.last-refresh{font-size:12px;color:var(--muted);white-space:nowrap}
 </style>
 </head>
 <body>
@@ -240,6 +254,7 @@ aside{background:var(--paper);min-height:0}
     <div class="tools">
       <span class="save-status" id="save-status"></span>
       <button class="btn" id="btn-refresh" title="Reload RSVP data from the server">Refresh guests</button>
+      <span class="last-refresh" id="last-refresh-txt"></span>
       <button class="btn" id="undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
       <button class="btn" id="redo" title="Redo (Shift+Ctrl/Cmd+Z)" disabled>Redo</button>
     </div>
@@ -256,6 +271,16 @@ aside{background:var(--paper);min-height:0}
   </main>
 </div>
 
+<div class="chg-panel-wrap" id="chg-panel-wrap">
+  <div class="chg-backdrop" id="chg-backdrop"></div>
+  <div class="chg-panel" id="chg-panel">
+    <div class="chg-head">
+      <span>RSVP changes</span>
+      <button class="btn small" id="chg-close">Close</button>
+    </div>
+    <div id="chg-list"></div>
+  </div>
+</div>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="tip" role="tooltip"></div>
 
@@ -409,6 +434,10 @@ var state = null;
 var past = [], future = [];
 var sel = null, hiParty = null;
 var tab = 'going', query = '';
+var rsvpChanges = [];
+var changesByTid = {};
+var autoRefreshTimer = null;
+var lastGuestRefresh = null;
 
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
 function tbl(id,s){ s=s||state; for(var i=0;i<s.tables.length;i++) if(s.tables[i].id===id) return s.tables[i]; return null; }
@@ -526,8 +555,10 @@ function loadAdmin(){
     saveStatus='saved';
     document.getElementById('loading-overlay').hidden = true;
     document.getElementById('app').hidden = false;
+    lastGuestRefresh = Date.now();
     renderAll();
     renderSaveStatus();
+    startAutoRefresh();
   }).catch(function(e){
     showSigninErr('Network error loading data. Please refresh and try again.');
   });
@@ -550,7 +581,9 @@ function refreshGuests(){
       if(!newRsvp[pid]) changed++;
     });
     state.rsvp = newRsvp;
+    lastGuestRefresh = Date.now();
     renderAll();
+    renderLastRefresh();
     toast('Guests refreshed' + (changed ? ' · ' + changed + ' RSVP change' + (changed===1?'':'s') : ' · no changes') + '.');
   });
 }
@@ -653,6 +686,79 @@ function declinedSeated(){
   PLIST.forEach(function(p){ if(statusOf(p.id)==='no'&&seatsOf(state,p.id).length>0) out[p.id]=1; });
   return out;
 }
+function computeRsvpChanges(){
+  var changes=[];
+  PLIST.forEach(function(p){
+    var seats=seatsOf(state,p.id), seatedCount=seats.length;
+    if(!seatedCount) return;
+    var r=state.rsvp[p.id], expected=(r&&r.s==='going')?r.n:0;
+    if(seatedCount===expected) return;
+    var seenTids={},tableIds=[];
+    seats.forEach(function(s){ if(!seenTids[s.tid]){seenTids[s.tid]=true;tableIds.push(s.tid);} });
+    var tableLabel=tableIds.map(function(tid){ return tbl(tid)?tbl(tid).label:tid; }).join(', ');
+    var kind,msg;
+    if(!r||r.s!=='going'){ kind='declined'; msg='Declined, still seated at '+tableLabel; }
+    else if(seatedCount>expected){ kind='fewer'; msg='Seated for '+seatedCount+', now attending '+expected; }
+    else { kind='more'; msg='Seated for '+seatedCount+', now attending '+expected; }
+    changes.push({pid:p.id,name:p.name,seatedCount:seatedCount,expected:expected,tableLabel:tableLabel,tableIds:tableIds,msg:msg,kind:kind});
+  });
+  return changes;
+}
+function fixRsvpChange(pid){
+  var ch=null; for(var i=0;i<rsvpChanges.length;i++) if(rsvpChanges[i].pid===pid){ch=rsvpChanges[i];break;}
+  if(!ch) return;
+  if(ch.kind==='declined'){
+    mutate(function(s){unseat(s,pid);}); toast(P[pid].name+' unseated.');
+  } else if(ch.kind==='fewer'){
+    mutate(function(s){
+      var slist=seatsOf(s,pid);
+      slist.sort(function(a,b){return b.m-a.m;});
+      slist.slice(0,ch.seatedCount-ch.expected).forEach(function(seat){s.seats[seat.tid][seat.i]=null;});
+    });
+    toast(P[pid].name+' reduced to '+ch.expected+' seat'+(ch.expected!==1?'s':'')+'. ');
+  } else {
+    var need=ch.expected-ch.seatedCount, tid=ch.tableIds[0], tb=tbl(tid);
+    var free=(state.seats[tid]||[]).filter(function(v){return!v;}).length;
+    if(free>=need){
+      var baseM=ch.seatedCount;
+      mutate(function(s){
+        var sa=s.seats[tid],assigned=0;
+        for(var i=0;i<sa.length&&assigned<need;i++){ if(!sa[i]){sa[i]='p:'+pid+':'+(baseM+assigned);assigned++;} }
+      });
+      toast(P[pid].name+' — '+need+' seat'+(need>1?'s':'')+' added at '+tb.label+'.');
+    } else {
+      mutate(function(s){unseat(s,pid);});
+      toast(P[pid].name+' unseated — not enough seats at '+tb.label+'. Please find them a table.');
+    }
+  }
+  renderChangesPanel();
+}
+function renderChangesPanel(){
+  var list=$('chg-list'); if(!list) return;
+  if(!rsvpChanges.length){ list.innerHTML='<p class="note" style="padding:14px">No changes.</p>'; return; }
+  list.innerHTML=rsvpChanges.map(function(ch){
+    return '<div class="chg-item"><div class="chg-msg"><span class="chg-name">'+esc(ch.name)+'</span>'+esc(ch.msg)+'</div>'
+      +'<button class="btn small" data-fix="'+ch.pid+'">Fix</button></div>';
+  }).join('');
+}
+function silentRefreshGuests(){
+  if(!idToken||!state) return;
+  apiCall({action:'admin_guests',token:idToken}).then(function(gr){
+    if(!gr.ok) return;
+    buildGuestData(gr);
+    state.rsvp=buildRsvp(gr.guests);
+    lastGuestRefresh=Date.now();
+    renderAll();
+    renderLastRefresh();
+  }).catch(function(){});
+}
+function renderLastRefresh(){
+  var el=$('last-refresh-txt'); if(el) el.textContent='Updated just now';
+}
+function startAutoRefresh(){
+  clearInterval(autoRefreshTimer);
+  autoRefreshTimer=setInterval(silentRefreshGuests, 2*60*1000);
+}
 
 /* ================================================================
    TOAST
@@ -669,29 +775,35 @@ var svg, partiesEl, inspEl;
 function renderAll(){
   if(!state) return;
   problems = computeProblems();
+  rsvpChanges = computeRsvpChanges();
   renderStats();
   renderParties();
   renderCanvas();
   renderInspector();
   $('undo').disabled = !past.length;
   $('redo').disabled = !future.length;
+  var pw=$('chg-panel-wrap'); if(pw&&pw.classList.contains('open')) renderChangesPanel();
 }
 
 function renderStats(){
   var seated=0,free=0,cap=0,going=0,pendMax=0,pendN=0;
   PLIST.forEach(function(p){ var st=statusOf(p.id); if(st==='going') going+=sizeOf(p.id); else if(st==='pending'){ pendMax+=p.max; pendN++; } });
-  state.tables.forEach(function(t){ (state.seats[t.id]||[]).forEach(function(v){ if(parse(v)) seated++; if(!v) free++; if(!isHost(v)) cap++; }); });
+  state.tables.forEach(function(t){ (state.seats[t.id]||[]).forEach(function(v){
+    var pp=parse(v); if(pp&&statusOf(pp.pid)==='going') seated++;
+    if(!v) free++; if(!isHost(v)) cap++;
+  }); });
   var pct = going ? Math.round(100*seated/going) : 0;
   var h = '<span><b>'+seated+'</b> of <b>'+going+'</b> confirmed guests seated</span>'
     + '<span class="bar" aria-hidden="true"><i style="width:'+pct+'%"></i></span>'
     + '<span><b>'+free+'</b> chairs free</span>'
-    + '<span class="muted" style="color:var(--muted)"><b>'+pendN+'</b> parties yet to reply (up to '+pendMax+' seats)</span>';
+    + '<span style="color:var(--muted)"><b>'+pendN+'</b> parties yet to reply (up to '+pendMax+' seats)</span>';
   if(cap < going+pendMax) h += '<span class="warn">If everyone says yes: '+(going+pendMax-cap)+' chairs short</span>';
   var nb=Object.keys(problems.bad).length;
   if(nb) h += '<span class="warn alert">'+nb+' item'+(nb===1?'':'s')+' too close or outside the room</span>';
-  var ds=declinedSeated(), nds=Object.keys(ds).length;
-  if(nds) h += '<span class="warn alert">'+nds+' seated guest'+(nds===1?'':'s')+' declined — check Not&nbsp;going tab</span>';
+  var nc=rsvpChanges.length;
+  if(nc) h += '<button class="changes-btn" id="changes-banner" aria-label="Open RSVP changes"><span class="rsvp-chg-badge">'+nc+'</span> change'+(nc===1?'':'s')+' need attention</button>';
   $('stats').innerHTML = h;
+  var bn=$('changes-banner'); if(bn) bn.addEventListener('click',function(){ renderChangesPanel(); $('chg-panel-wrap').classList.add('open'); });
 }
 
 var TABS = [['going','Going'],['no','Not going'],['pending','No RSVP']];
@@ -702,8 +814,10 @@ function partyRow(p, ds){
   if(isDeclinedSeated) tag='<span class="tag warn-tag">Still seated</span>';
   else if(seated){ var seen={},labs=[]; seats.forEach(function(x){ if(!seen[x.tid]){seen[x.tid]=1;labs.push(shortLabel(tbl(x.tid)));} }); tag='<span class="tag">'+esc(labs.join(', '))+'</span>'; }
   var rowCls='party'+(seated?' seated':'')+(canDrag?'':' nodrag')+(hiParty===p.id?' on':'')+(isDeclinedSeated?' declined-warn':'');
+  var chgBadge='';
+  for(var ci=0;ci<rsvpChanges.length;ci++){if(rsvpChanges[ci].pid===p.id){chgBadge='<button class="rsvp-chg-badge" title="'+esc(rsvpChanges[ci].msg)+'" tabindex="-1" aria-label="RSVP change: '+esc(rsvpChanges[ci].msg)+'">!</button>';break;}}
   var h='<div class="'+rowCls+'" data-pid="'+p.id+'" data-drag="'+(canDrag?1:0)+'" tabindex="0" role="button" aria-label="'+esc(p.name)+', '+sizeOf(p.id)+' seats">'
-    +'<i class="dot" style="'+dotStyle(p.rel)+'"></i><span class="nm">'+esc(p.name)+'</span>'+tag+'<span class="pc">'+(st==='no'?0:sizeOf(p.id))+'</span></div>';
+    +'<i class="dot" style="'+dotStyle(p.rel)+'"></i><span class="nm">'+esc(p.name)+'</span>'+tag+chgBadge+'<span class="pc">'+(st==='no'?0:sizeOf(p.id))+'</span></div>';
   if(hiParty===p.id){
     h+='<div class="detail">';
     if(isDeclinedSeated){
@@ -724,12 +838,18 @@ function partyRow(p, ds){
   return h;
 }
 function renderParties(){
-  var q=query.trim().toLowerCase(), counts={going:0,no:0,pending:0};
-  PLIST.forEach(function(p){ var k=statusOf(p.id); if(counts[k]!==undefined) counts[k]++; });
+  var q=query.trim().toLowerCase();
+  var pplCounts={going:0,no:0,pending:0}, ptyCount={going:0,no:0,pending:0};
+  PLIST.forEach(function(p){
+    var k=statusOf(p.id), r=state.rsvp[p.id];
+    if(k==='going'){ pplCounts.going+=(r?r.n:sizeOf(p.id)); ptyCount.going++; }
+    else if(k==='no'){ pplCounts.no+=p.max; ptyCount.no++; }
+    else { pplCounts.pending+=p.max; ptyCount.pending++; }
+  });
   var h='<div class="phead"><h2>Guests</h2>'
     +'<input type="search" id="pq" placeholder="Search guests" value="'+esc(query)+'" aria-label="Search guests">'
     +'<div class="chips" role="group" aria-label="RSVP status">'
-    +TABS.map(function(t){ return '<button class="chip" data-tab="'+t[0]+'" aria-pressed="'+(tab===t[0])+'">'+t[1]+' <b>'+counts[t[0]]+'</b></button>'; }).join('')
+    +TABS.map(function(t){ return '<button class="chip" data-tab="'+t[0]+'" aria-pressed="'+(tab===t[0])+'" title="'+ptyCount[t[0]]+' part'+(ptyCount[t[0]]===1?'y':'ies')+'">'+t[1]+' <b>'+pplCounts[t[0]]+'</b></button>'; }).join('')
     +'</div></div>';
   var rows=PLIST.filter(function(p){ return statusOf(p.id)===tab&&(!q||p.name.toLowerCase().indexOf(q)>-1); });
   var ds=declinedSeated();
@@ -746,7 +866,7 @@ function renderParties(){
     var todo=rows.filter(function(p){return !seatsOf(state,p.id).length;}),
         done=rows.filter(function(p){return seatsOf(state,p.id).length;});
     if(!rows.length) h+='<p class="note" style="padding:14px">No confirmed guests'+(q?' match that search':' yet')+'.</p>';
-    if(todo.length) h+='<div class="sechead" style="border-top:0;margin-top:0"><span>Needs a table</span><span>'+todo.reduce(function(a,p){return a+sizeOf(p.id);},0)+' seats</span></div>'+grouped(todo);
+    if(todo.length) h+=grouped(todo);
     else if(rows.length) h+='<p class="note" style="padding:14px">Everyone confirmed has a table.</p>';
     if(done.length){
       done.sort(function(a,b){ var ta=seatsOf(state,a.id)[0].tid, tb=seatsOf(state,b.id)[0].tid; return ta<tb?-1:ta>tb?1:0; });
@@ -867,6 +987,16 @@ function tableSVG(t, hiSeats, focusT){
   g+='<g transform="rotate('+(-t.rot)+')"><text class="tlabel" style="font-size:'+num(fs)+'px" y="'+ly+'">'+esc(t.label)+'</text>';
   if(t.shape==='round') g+='<text class="tocc" y="12">'+used+'/'+seats.length+'</text>';
   g+='</g>';
+  if(changesByTid[t.id]){
+    var cmsgs=changesByTid[t.id].map(function(c){return c.msg;}).join(' | ');
+    var bx2,by2;
+    if(t.shape==='round'){ bx2=num(d.r*S*0.6); by2=num(-d.r*S*0.6); }
+    else { bx2=num(d.w/2*S-12); by2=num(-(d.h/2*S-8)); }
+    g+='<g class="rsvp-chg" data-tip="'+esc(cmsgs)+'" transform="rotate('+(-t.rot)+')">'
+      +'<circle cx="'+bx2+'" cy="'+by2+'" r="8" fill="#D1242F"/>'
+      +'<text x="'+bx2+'" y="'+by2+'" text-anchor="middle" dominant-baseline="central" fill="white" style="font:800 11px sans-serif;pointer-events:none">!</text>'
+      +'</g>';
+  }
   if(problems.bad[t.id]){
     if(t.shape==='round') g+='<circle class="alertring" r="'+num((d.r+0.55)*S)+'"/>';
     else{ var ex=t.shape==='curve'?0.6:0.1; g+='<rect class="alertring" x="'+num(-(d.w/2+ex)*S)+'" y="'+num(-(d.h/2+0.55)*S)+'" width="'+num((d.w+2*ex)*S)+'" height="'+num((d.h+1.1)*S)+'" rx="6"/>'; }
@@ -905,6 +1035,8 @@ function renderCanvas(){
     +'</defs>'
     +'<rect class="floor" x="0" y="0" width="'+W*S+'" height="'+H*S+'" rx="8" fill="url(#grid)"/>';
   state.fixtures.forEach(function(f){ h+=fixSVG(f); });
+  changesByTid={};
+  rsvpChanges.forEach(function(ch){ch.tableIds.forEach(function(tid){(changesByTid[tid]=changesByTid[tid]||[]).push(ch);});});
   state.tables.forEach(function(t){ h+=tableSVG(t,hiSeats,focusT); });
   h+='<g class="scalebar"><path d="M14 '+by+'h150M14 '+(by-4)+'v8M164 '+(by-4)+'v8"/><text x="89" y="'+(by-8)+'">5 m</text></g>';
   svg.innerHTML=h;
@@ -1130,10 +1262,12 @@ function attachListeners(){
   svg.addEventListener('pointerover',function(e){
     if(od||drag||rs){ hideTip(); return; }
     var c=e.target.closest&&e.target.closest('.chair[data-tip]');
+    var chgEl=e.target.closest&&e.target.closest('.rsvp-chg');
     var g=e.target.closest&&e.target.closest('.tbl,.fx');
     var html='';
-    if(c){ var sub=c.getAttribute('data-sub'); html='<b>'+esc(c.getAttribute('data-tip'))+'</b>'+(sub?'<span>'+esc(sub)+'</span>':''); }
-    if(g){
+    if(chgEl){ html='<b style="color:var(--alert)">RSVP change</b><span>'+esc(chgEl.getAttribute('data-tip'))+'</span>'; }
+    else if(c){ var sub=c.getAttribute('data-sub'); html='<b>'+esc(c.getAttribute('data-tip'))+'</b>'+(sub?'<span>'+esc(sub)+'</span>':''); }
+    if(g&&!chgEl){
       var id=g.dataset.tid||g.dataset.fid, w=problems.why[id];
       if(w&&w.length) html+=(c?'':'<b>'+esc((g.dataset.tid?tbl(id):fix(id)).label)+'</b>')+'<span style="color:#FFB3B8">'+esc(w.join('. '))+(g.dataset.tid?'. Seats are locked until it is fixed.':'. Move or resize it.')+'</span>';
       else if(!c&&g.dataset.fid){ var fo=fix(id); html='<b>'+esc(fo.label)+'</b><span>'+fo.w+' \u00d7 '+fo.h+' m</span>'; }
@@ -1241,6 +1375,17 @@ function attachListeners(){
   $('undo').addEventListener('click',undo);
   $('redo').addEventListener('click',redo);
   $('btn-refresh').addEventListener('click',refreshGuests);
+  /* Changes panel */
+  $('chg-backdrop').addEventListener('click',function(){ $('chg-panel-wrap').classList.remove('open'); });
+  $('chg-close').addEventListener('click',function(){ $('chg-panel-wrap').classList.remove('open'); });
+  $('chg-list').addEventListener('click',function(e){
+    var b=e.target.closest('[data-fix]'); if(!b) return;
+    fixRsvpChange(b.dataset.fix);
+  });
+  /* Re-check on tab focus */
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'&&state) silentRefreshGuests();
+  });
 
   /* Keyboard */
   document.addEventListener('keydown',function(e){
