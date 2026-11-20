@@ -208,6 +208,9 @@ aside{background:var(--paper);min-height:0}
 .chg-msg{flex:1;font-size:13px;line-height:1.4}
 .chg-name{font-weight:600;display:block;margin-bottom:2px}
 .last-refresh{font-size:12px;color:var(--muted);white-space:nowrap}
+.unseat-btn{opacity:0;transition:opacity .12s;border:0;background:transparent;color:var(--cherry);font-size:12px;font-weight:600;cursor:pointer;padding:2px 4px;white-space:nowrap;flex:none}
+.party:hover .unseat-btn,.party.on .unseat-btn{opacity:1}
+@media(hover:none){.unseat-btn{opacity:1}}
 </style>
 </head>
 <body>
@@ -765,6 +768,45 @@ function startAutoRefresh(){
    ================================================================ */
 var toastT;
 function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(function(){t.classList.remove('on');},3600); }
+function toastUndo(msg){
+  var t=document.getElementById('toast');
+  t.innerHTML=esc(msg)+' <button style="color:var(--butter);font-weight:700;background:none;border:0;cursor:pointer;padding:0;font:inherit" id="toast-undo">Undo</button>';
+  t.classList.add('on'); clearTimeout(toastT);
+  toastT=setTimeout(function(){t.classList.remove('on');},4500);
+  var u=document.getElementById('toast-undo');
+  if(u) u.addEventListener('click',function(){ undo(); t.classList.remove('on'); });
+}
+function quickFixRsvp(pid){
+  var ch=null; for(var i=0;i<rsvpChanges.length;i++) if(rsvpChanges[i].pid===pid){ch=rsvpChanges[i];break;}
+  if(!ch) return;
+  var name=P[pid].name;
+  if(ch.kind==='declined'){
+    mutate(function(s){unseat(s,pid);});
+    toastUndo(name+' unseated.');
+  } else if(ch.kind==='fewer'){
+    mutate(function(s){
+      var slist=seatsOf(s,pid);
+      slist.sort(function(a,b){return b.m-a.m;});
+      slist.slice(0,ch.seatedCount-ch.expected).forEach(function(seat){s.seats[seat.tid][seat.i]=null;});
+    });
+    var ns=seatsOf(state,pid), seenT={},labs=[];
+    ns.forEach(function(x){if(!seenT[x.tid]){seenT[x.tid]=1;labs.push(tbl(x.tid)?tbl(x.tid).label:x.tid);}});
+    toastUndo(name+' now has '+ch.expected+' seat'+(ch.expected!==1?'s':'')+' at '+labs.join(', ')+'.');
+  } else {
+    var need=ch.expected-ch.seatedCount, tid=ch.tableIds[0], tb=tbl(tid);
+    var free=(state.seats[tid]||[]).filter(function(v){return!v;}).length;
+    if(free>=need){
+      var baseM=ch.seatedCount;
+      mutate(function(s){
+        var sa=s.seats[tid],assigned=0;
+        for(var i=0;i<sa.length&&assigned<need;i++){ if(!sa[i]){sa[i]='p:'+pid+':'+(baseM+assigned);assigned++;} }
+      });
+      toastUndo(name+' now has '+ch.expected+' seat'+(ch.expected!==1?'s':'')+' at '+tb.label+'.');
+    } else {
+      toast(tb.label+' only has '+free+' free seat'+(free===1?'':'s')+'. Move them or unseat them first.');
+    }
+  }
+}
 
 /* ================================================================
    RENDERING
@@ -794,14 +836,12 @@ function renderStats(){
   }); });
   var pct = going ? Math.round(100*seated/going) : 0;
   var h = '<span><b>'+seated+'</b> of <b>'+going+'</b> confirmed guests seated</span>'
-    + '<span class="bar" aria-hidden="true"><i style="width:'+pct+'%"></i></span>'
-    + '<span><b>'+free+'</b> chairs free</span>'
-    + '<span style="color:var(--muted)"><b>'+pendN+'</b> parties yet to reply (up to '+pendMax+' seats)</span>';
+    + '<span class="bar" aria-hidden="true"><i style="width:'+pct+'%"></i></span>';
   if(cap < going+pendMax) h += '<span class="warn">If everyone says yes: '+(going+pendMax-cap)+' chairs short</span>';
   var nb=Object.keys(problems.bad).length;
   if(nb) h += '<span class="warn alert">'+nb+' item'+(nb===1?'':'s')+' too close or outside the room</span>';
   var nc=rsvpChanges.length;
-  if(nc) h += '<button class="changes-btn" id="changes-banner" aria-label="Open RSVP changes"><span class="rsvp-chg-badge">'+nc+'</span> change'+(nc===1?'':'s')+' need attention</button>';
+  if(nc) h += '<button class="changes-btn" id="changes-banner" aria-label="Open RSVP changes"><span class="rsvp-chg-badge">'+nc+'</span> '+(nc===1?'change needs':'changes need')+' attention</button>';
   $('stats').innerHTML = h;
   var bn=$('changes-banner'); if(bn) bn.addEventListener('click',function(){ renderChangesPanel(); $('chg-panel-wrap').classList.add('open'); });
 }
@@ -816,8 +856,9 @@ function partyRow(p, ds){
   var rowCls='party'+(seated?' seated':'')+(canDrag?'':' nodrag')+(hiParty===p.id?' on':'')+(isDeclinedSeated?' declined-warn':'');
   var chgBadge='';
   for(var ci=0;ci<rsvpChanges.length;ci++){if(rsvpChanges[ci].pid===p.id){chgBadge='<button class="rsvp-chg-badge" title="'+esc(rsvpChanges[ci].msg)+'" tabindex="-1" aria-label="RSVP change: '+esc(rsvpChanges[ci].msg)+'">!</button>';break;}}
+  var unseatBtn=seated?'<button class="unseat-btn" data-pact="unseat-row" data-pid="'+p.id+'" tabindex="-1">Unseat</button>':'';
   var h='<div class="'+rowCls+'" data-pid="'+p.id+'" data-drag="'+(canDrag?1:0)+'" tabindex="0" role="button" aria-label="'+esc(p.name)+', '+sizeOf(p.id)+' seats">'
-    +'<i class="dot" style="'+dotStyle(p.rel)+'"></i><span class="nm">'+esc(p.name)+'</span>'+tag+chgBadge+'<span class="pc">'+(st==='no'?0:sizeOf(p.id))+'</span></div>';
+    +'<i class="dot" style="'+dotStyle(p.rel)+'"></i><span class="nm">'+esc(p.name)+'</span>'+tag+chgBadge+'<span class="pc">'+(st==='no'?0:sizeOf(p.id))+'</span>'+unseatBtn+'</div>';
   if(hiParty===p.id){
     h+='<div class="detail">';
     if(isDeclinedSeated){
@@ -989,10 +1030,11 @@ function tableSVG(t, hiSeats, focusT){
   g+='</g>';
   if(changesByTid[t.id]){
     var cmsgs=changesByTid[t.id].map(function(c){return c.msg;}).join(' | ');
+    var cpids=changesByTid[t.id].map(function(c){return c.pid;}).join(',');
     var bx2,by2;
     if(t.shape==='round'){ bx2=num(d.r*S*0.6); by2=num(-d.r*S*0.6); }
     else { bx2=num(d.w/2*S-12); by2=num(-(d.h/2*S-8)); }
-    g+='<g class="rsvp-chg" data-tip="'+esc(cmsgs)+'" transform="rotate('+(-t.rot)+')">'
+    g+='<g class="rsvp-chg" data-tip="'+esc(cmsgs)+'" data-pids="'+cpids+'" transform="rotate('+(-t.rot)+')">'
       +'<circle cx="'+bx2+'" cy="'+by2+'" r="8" fill="#D1242F"/>'
       +'<text x="'+bx2+'" y="'+by2+'" text-anchor="middle" dominant-baseline="central" fill="white" style="font:800 11px sans-serif;pointer-events:none">!</text>'
       +'</g>';
@@ -1223,12 +1265,20 @@ function attachListeners(){
     if((e.key==='Enter'||e.key===' ')&&e.target.classList.contains('party')){ e.preventDefault(); toggleParty(e.target.dataset.pid); }
   });
   partiesEl.addEventListener('click',function(e){
+    /* RSVP badge → quick-fix; guard against double-click firing twice */
+    var badge=e.target.closest('.rsvp-chg-badge');
+    if(badge){ if(e.detail>=2) return; var brow=badge.closest('[data-pid]'); if(brow) quickFixRsvp(brow.dataset.pid); return; }
+    /* Unseat button on row */
+    var uBtn=e.target.closest('[data-pact="unseat-row"]');
+    if(uBtn){ var pid2=uBtn.dataset.pid; mutate(function(s){unseat(s,pid2);}); toastUndo(P[pid2].name+' unseated.'); return; }
+    /* Tab chips */
     var c=e.target.closest('[data-tab]'); if(c){ tab=c.dataset.tab; hiParty=null; renderParties(); renderCanvas(); return; }
+    /* Party row toggle */
     var row=e.target.closest('.party');
     if(row&&row.dataset.drag!=='1'){ toggleParty(row.dataset.pid); return; }
     var b=e.target.closest('[data-pact]'); if(!b) return;
     var pid=b.dataset.pid, a=b.dataset.pact;
-    if(a==='unseat-all'){ mutate(function(s){unseat(s,pid);}); toast(P[pid].name+' unseated.'); }
+    if(a==='unseat-all'){ mutate(function(s){unseat(s,pid);}); toastUndo(P[pid].name+' unseated.'); }
   });
   /* Selected-table panel event handlers */
   function ptableContains(target){ var el=document.getElementById('ptable'); return el && el.contains(target); }
@@ -1277,10 +1327,18 @@ function attachListeners(){
   });
   svg.addEventListener('pointermove',function(e){ if(tipEl.style.display==='block') moveTip(e); });
   svg.addEventListener('pointerleave',hideTip);
+  svg.addEventListener('click',function(e){
+    if(e.detail>=2) return;
+    var badge=e.target.closest('.rsvp-chg');
+    if(!badge) return;
+    var pids=(badge.getAttribute('data-pids')||'').split(',').filter(Boolean);
+    pids.forEach(function(pid){ quickFixRsvp(pid); });
+  });
 
   /* SVG interactions */
   svg.addEventListener('pointerdown',function(e){
     if(e.button&&e.button>0) return;
+    if(e.target.closest('.rsvp-chg')) return; /* handled by click */
     hideTip();
     var hd=e.target.closest('.hdl');
     if(hd&&sel&&sel.k==='f'){
